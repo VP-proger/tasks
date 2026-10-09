@@ -1,0 +1,50 @@
+import struct
+
+HEADER_FORMAT = "!BI"
+HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
+
+MAX_MESSAGE_SIZE = 10 * 1024 * 1024
+MAX_COMMAND_SIZE = 64
+
+
+def recv_exact(sock, size):
+    chunks = bytearray()
+    while len(chunks) < size:
+        chunk = sock.recv(size - len(chunks))
+        if not chunk:
+            raise ConnectionError("соединение закрыто до получения всех данных")
+        chunks.extend(chunk)
+    return bytes(chunks)
+
+
+def send_message(sock, command, payload=b""):
+    command_bytes = command.encode("utf-8")
+
+    if len(command_bytes) == 0:
+        raise ValueError("команда не может быть пустой")
+    if len(command_bytes) > MAX_COMMAND_SIZE:
+        raise ValueError(f"команда слишком длинная: {len(command_bytes)} байт")
+    if len(payload) > MAX_MESSAGE_SIZE:
+        raise ValueError(f"payload слишком большой: {len(payload)} байт")
+
+    header = struct.pack(HEADER_FORMAT, len(command_bytes), len(payload))
+    sock.sendall(header + command_bytes + payload)
+
+
+def recv_message(sock):
+    try:
+        header = recv_exact(sock, HEADER_SIZE)
+    except ConnectionError:
+        return None
+
+    command_length, payload_length = struct.unpack(HEADER_FORMAT, header)
+
+    if command_length == 0 or command_length > MAX_COMMAND_SIZE:
+        raise ValueError(f"недопустимая длина команды: {command_length}")
+    if payload_length > MAX_MESSAGE_SIZE:
+        raise ValueError(f"заявленная длина {payload_length} превышает лимит")
+
+    command_bytes = recv_exact(sock, command_length)
+    payload = recv_exact(sock, payload_length) if payload_length else b""
+
+    return command_bytes.decode("utf-8"), payload
